@@ -192,9 +192,10 @@ export default function OverviewContent({ data }: OverviewContentProps) {
     const allTimeTokens = totalInputTokens + totalOutputTokens + totalCacheReadTokens + totalCacheCreationTokens;
     const totalTokensFiltered = Math.round(allTimeTokens * proportion);
 
-    // Cost: use dailyCosts (computed with blended effective rate per model on server)
-    const filteredCosts = dailyCosts.filter((d) => new Date(d.date) >= cutoffDate);
-    const finalCost = filteredCosts.reduce((sum, d) => sum + d.cost, 0);
+    // Cost: Scale the filtered totalEstimatedCost by the time proportion
+    // Note: dailyCosts from server only include non-cache costs, so we can't use them directly
+    // when token filters are active. Instead, we scale the already-filtered totalEstimatedCost.
+    const finalCost = totalEstimatedCost * proportion;
 
     // Compute averages
     const avgCostPerSession = totalSessions > 0 ? finalCost / totalSessions : 0;
@@ -434,14 +435,12 @@ export default function OverviewContent({ data }: OverviewContentProps) {
         <h2 className="text-xl font-semibold text-white mb-4">Model Breakdown</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {sortedModels.map(([model, info]) => {
-            const usage = stats.modelUsage[model];
-            if (!usage) return null;
-
-            const modelTotal = usage.inputTokens + usage.outputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
+            // Calculate total tokens from the normalized modelBreakdown
+            const modelTotal = info.tokenUsage.input + info.tokenUsage.output + (info.tokenUsage.cacheRead || 0) + (info.tokenUsage.cacheCreation || 0);
             const costPct = totalEstimatedCost > 0 ? (info.estimatedCost / totalEstimatedCost * 100) : 0;
             const tokenPct = totalTokens > 0 ? (modelTotal / totalTokens * 100) : 0;
             const perMTokRate = modelTotal > 0 ? (info.estimatedCost / (modelTotal / 1_000_000)) : 0;
-            const maxToken = Math.max(usage.inputTokens, usage.outputTokens, usage.cacheReadInputTokens, usage.cacheCreationInputTokens, 1);
+            const maxToken = Math.max(info.tokenUsage.input, info.tokenUsage.output, info.tokenUsage.cacheRead || 0, info.tokenUsage.cacheCreation || 0, 1);
 
             // Per-token-type cost using actual model rates
             const m = model.toLowerCase();
@@ -451,16 +450,16 @@ export default function OverviewContent({ data }: OverviewContentProps) {
               ? { input: 1, output: 5, cacheRead: 0.10, cacheWrite: 1.25 }
               : { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 };
 
-            const inputCost = (usage.inputTokens / 1_000_000) * rates.input;
-            const outputCost = (usage.outputTokens / 1_000_000) * rates.output;
-            const cacheReadCost = (usage.cacheReadInputTokens / 1_000_000) * rates.cacheRead;
-            const cacheWriteCost = (usage.cacheCreationInputTokens / 1_000_000) * rates.cacheWrite;
+            const inputCost = (info.tokenUsage.input / 1_000_000) * rates.input;
+            const outputCost = (info.tokenUsage.output / 1_000_000) * rates.output;
+            const cacheReadCost = ((info.tokenUsage.cacheRead || 0) / 1_000_000) * rates.cacheRead;
+            const cacheWriteCost = ((info.tokenUsage.cacheCreation || 0) / 1_000_000) * rates.cacheWrite;
 
             const tokenBreakdown = [
-              { label: 'Input', value: usage.inputTokens, cost: inputCost, rate: rates.input, color: '#3B82F6' },
-              { label: 'Output', value: usage.outputTokens, cost: outputCost, rate: rates.output, color: '#A855F7' },
-              { label: 'Cache Read', value: usage.cacheReadInputTokens, cost: cacheReadCost, rate: rates.cacheRead, color: '#10B981' },
-              { label: 'Cache Write', value: usage.cacheCreationInputTokens, cost: cacheWriteCost, rate: rates.cacheWrite, color: '#F59E0B' },
+              { label: 'Input', value: info.tokenUsage.input, cost: inputCost, rate: rates.input, color: '#3B82F6' },
+              { label: 'Output', value: info.tokenUsage.output, cost: outputCost, rate: rates.output, color: '#A855F7' },
+              { label: 'Cache Read', value: info.tokenUsage.cacheRead || 0, cost: cacheReadCost, rate: rates.cacheRead, color: '#10B981' },
+              { label: 'Cache Write', value: info.tokenUsage.cacheCreation || 0, cost: cacheWriteCost, rate: rates.cacheWrite, color: '#F59E0B' },
             ];
 
             const maxCostInModel = Math.max(...tokenBreakdown.map(t => t.cost), 0.01);
