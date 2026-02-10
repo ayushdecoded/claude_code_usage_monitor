@@ -108,6 +108,30 @@ export interface DashboardData {
   totalDays: number;
 }
 
+// Token type filter
+export type TokenTypeFilter = 'input' | 'output' | 'cacheRead' | 'cacheCreation';
+
+// Filter state interface
+export interface FilterState {
+  tokenTypes: TokenTypeFilter[];  // Empty array = all types
+  models: Set<string>;             // Empty set = all models
+  projects: Set<string>;           // Empty set = all projects
+  costRange: { min: number | null; max: number | null };
+  tokenRange: { min: number | null; max: number | null };
+}
+
+// Filtered dashboard data with metadata
+export interface FilteredDashboardData extends DashboardData {
+  _original: DashboardData;
+  activeFilters: FilterState;
+  filteredStats: {
+    projectsFiltered: number;
+    modelsFiltered: number;
+    tokensFiltered: number;
+    costFiltered: number;
+  };
+}
+
 // Session Lifecycle Types
 export type ServerState = 'STARTING' | 'ACTIVE' | 'IDLE' | 'GRACE_PERIOD' | 'SHUTTING_DOWN';
 

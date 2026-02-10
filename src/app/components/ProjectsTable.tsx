@@ -3,6 +3,7 @@
 import type { ProjectSummary } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
 import { useState, useMemo } from 'react';
+import { EmptyState } from './EmptyState';
 
 type SortColumn = 'name' | 'sessions' | 'messages' | 'tokens' | 'cost' | 'lastActive';
 type SortDirection = 'asc' | 'desc';
@@ -129,8 +130,12 @@ export default function ProjectsTable({ projects }: ProjectsTableProps) {
 
   if (projects.length === 0) {
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-12 text-center">
-        <p className="text-slate-400 text-lg">No projects found</p>
+      <div className="bg-slate-800 border border-slate-700 rounded-xl">
+        <EmptyState
+          title="No Projects Yet"
+          description="Start a Claude session or run a Claude Code project to see data here."
+          showClearFiltersButton={false}
+        />
       </div>
     );
   }
@@ -212,8 +217,13 @@ export default function ProjectsTable({ projects }: ProjectsTableProps) {
           <tbody>
             {sortedAndFilteredProjects.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
-                  No projects match your search
+                <td colSpan={6} className="px-6 py-8">
+                  <div className="text-center py-4">
+                    <p className="text-slate-400 mb-2">No projects found</p>
+                    {searchQuery && (
+                      <p className="text-slate-500 text-sm">Try a different search term</p>
+                    )}
+                  </div>
                 </td>
               </tr>
             ) : (

@@ -3,6 +3,7 @@
 import { useDashboardData } from '@/lib/client/data-context';
 import LoadingScreen from './LoadingScreen';
 import NavLinks from './NavLinks';
+import { FilterBar } from './filters/FilterBar';
 
 export default function AppWrapper({ children }: { children: React.ReactNode }) {
   const { isLoading, error, refetch } = useDashboardData();
@@ -42,6 +43,7 @@ export default function AppWrapper({ children }: { children: React.ReactNode }) 
           <NavLinks />
         </div>
       </header>
+      <FilterBar />
       <main className="max-w-7xl mx-auto px-6 py-8">
         {children}
       </main>

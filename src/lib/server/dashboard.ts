@@ -75,13 +75,25 @@ async function refreshData(changedFile?: string): Promise<void> {
   const s = stats || emptyStats;
   const projectsList = projects || [];
 
-  // Normalize model names (group variants of same model together)
+  // Normalize model names dynamically (group by base family, not version)
+  // Extracts the base model family from any variant (opus, sonnet, haiku, etc)
   const normalizeModelName = (model: string): string => {
     const lower = model.toLowerCase();
-    if (lower.includes('opus')) return 'claude-opus-4.5';
-    if (lower.includes('sonnet')) return 'claude-sonnet-4.5';
-    if (lower.includes('haiku')) return 'claude-haiku-4.5';
-    return model;
+
+    // Try to extract from "claude-{family}-..." format
+    const match = lower.match(/claude-([a-z]+)/);
+    if (match) return match[1]; // Returns "opus", "sonnet", "haiku", etc
+
+    // Fallback: look for common family names anywhere in the string
+    // (handles non-claude formatted names)
+    if (lower.includes('opus')) return 'opus';
+    if (lower.includes('sonnet')) return 'sonnet';
+    if (lower.includes('haiku')) return 'haiku';
+
+    // For completely new/unknown models, extract first word
+    // This ensures new Anthropic releases are automatically grouped
+    const firstWord = lower.split(/[-_\s]/)[0];
+    return firstWord || model;
   };
 
   // Build model breakdown from stats-cache (may be stale)

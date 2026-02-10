@@ -1,12 +1,12 @@
 import type { TokenUsage, ModelPricing } from '@/lib/types';
 
-const PRICING: Record<string, ModelPricing> = {
+export const PRICING: Record<string, ModelPricing> = {
   opus: { inputRate: 5, outputRate: 25, cacheReadRate: 0.50, cacheCreateRate: 6.25 },
   sonnet: { inputRate: 3, outputRate: 15, cacheReadRate: 0.30, cacheCreateRate: 3.75 },
   haiku: { inputRate: 1, outputRate: 5, cacheReadRate: 0.10, cacheCreateRate: 1.25 },
 };
 
-function matchPricing(model: string): ModelPricing {
+export function matchPricing(model: string): ModelPricing {
   const m = model.toLowerCase();
   if (m.includes('opus')) return PRICING.opus;
   if (m.includes('haiku')) return PRICING.haiku;

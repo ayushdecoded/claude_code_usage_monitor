@@ -1,6 +1,6 @@
 'use client';
 
-import { useDashboardData } from "@/lib/client/data-context";
+import { useFilteredData } from "@/lib/client/use-filtered-data";
 import ProjectsTable from "../components/ProjectsTable";
 
 function formatCost(n: number): string {
@@ -8,7 +8,7 @@ function formatCost(n: number): string {
 }
 
 export default function ProjectsPage() {
-  const { data } = useDashboardData();
+  const data = useFilteredData();
 
   if (!data) return null; // Should be handled by LoadingScreen
 

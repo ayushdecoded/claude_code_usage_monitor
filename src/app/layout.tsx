@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import SSEProvider from "./components/SSEProvider";
 import { DataProvider } from "@/lib/client/data-context";
+import { FilterProvider } from "@/lib/client/filter-context";
 import AppWrapper from "./components/AppWrapper";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -17,11 +18,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-900 text-slate-100 min-h-screen`}>
-        <DataProvider>
-          <SSEProvider>
-            <AppWrapper>{children}</AppWrapper>
-          </SSEProvider>
-        </DataProvider>
+        <FilterProvider>
+          <DataProvider>
+            <SSEProvider>
+              <AppWrapper>{children}</AppWrapper>
+            </SSEProvider>
+          </DataProvider>
+        </FilterProvider>
       </body>
     </html>
   );

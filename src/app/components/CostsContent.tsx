@@ -24,11 +24,12 @@ function formatDate(dateStr: string): string {
 }
 
 function prettifyModel(name: string): string {
-  const n = name.toLowerCase();
-  if (n.includes('opus')) return 'Opus 4.5';
-  if (n.includes('sonnet')) return 'Sonnet 4.5';
-  if (n.includes('haiku')) return 'Haiku 4.5';
-  return name;
+  // Dynamically capitalize the model family name
+  // "opus" → "Opus", "sonnet" → "Sonnet", "new-model" → "New-Model"
+  // This automatically handles new Anthropic releases without code changes
+  if (!name) return name;
+  const words = name.toLowerCase().split('-');
+  return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('-');
 }
 
 function modelColor(name: string): string {
@@ -137,13 +138,21 @@ export default function CostsContent({ data }: CostsContentProps) {
       cutoffDate = subDays(now, 365);
     }
 
+    // Calculate proportion of time range to scale costs
+    // Note: We can't use dailyCosts directly when token filters are active because
+    // dailyCosts from server only include non-cache costs
+    const allTimeDays = dailyCosts.length;
     const filteredCosts = dailyCosts.filter(d => new Date(d.date) >= cutoffDate);
-    const totalCost = filteredCosts.reduce((sum, d) => sum + d.cost, 0);
+    const filteredDays = filteredCosts.length;
+    const timeProportion = allTimeDays > 0 ? filteredDays / allTimeDays : 0;
+
+    // Scale the already-filtered totalEstimatedCost by time proportion
+    const totalCost = totalEstimatedCost * timeProportion;
 
     return {
       filteredCosts,
       totalCost,
-      avgCostPerDay: filteredCosts.length > 0 ? totalCost / filteredCosts.length : 0,
+      avgCostPerDay: filteredDays > 0 ? totalCost / filteredDays : 0,
     };
   }, [selectedRange, dailyCosts, totalEstimatedCost]);
 

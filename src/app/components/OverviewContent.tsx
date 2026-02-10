@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { format, subDays, parseISO } from "date-fns";
 import type { DashboardData } from "@/lib/types";
+import { PRICING } from "@/lib/server/pricing";
 import ActivityChart from "./ActivityChart";
 
 interface OverviewContentProps {
@@ -32,11 +33,12 @@ function formatDate(dateStr: string): string {
 }
 
 function prettifyModel(name: string): string {
-  const n = name.toLowerCase();
-  if (n.includes('opus')) return 'Opus 4.5';
-  if (n.includes('sonnet')) return 'Sonnet 4.5';
-  if (n.includes('haiku')) return 'Haiku 4.5';
-  return name;
+  // Dynamically capitalize the model family name
+  // "opus" → "Opus", "sonnet" → "Sonnet", "new-model" → "New-Model"
+  // This automatically handles new Anthropic releases without code changes
+  if (!name) return name;
+  const words = name.toLowerCase().split('-');
+  return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('-');
 }
 
 function modelColor(name: string): string {
@@ -442,18 +444,20 @@ export default function OverviewContent({ data }: OverviewContentProps) {
             const perMTokRate = modelTotal > 0 ? (info.estimatedCost / (modelTotal / 1_000_000)) : 0;
             const maxToken = Math.max(info.tokenUsage.input, info.tokenUsage.output, info.tokenUsage.cacheRead || 0, info.tokenUsage.cacheCreation || 0, 1);
 
-            // Per-token-type cost using actual model rates
-            const m = model.toLowerCase();
-            const rates = m.includes('opus')
-              ? { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 }
-              : m.includes('haiku')
-              ? { input: 1, output: 5, cacheRead: 0.10, cacheWrite: 1.25 }
-              : { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 };
+            // Per-token-type cost using dynamic PRICING rates
+            // model is already normalized (family name like "opus", "sonnet", "haiku")
+            const pricing = PRICING[model as keyof typeof PRICING] || PRICING.sonnet;
+            const rates = {
+              input: pricing.inputRate,
+              output: pricing.outputRate,
+              cacheRead: pricing.cacheReadRate,
+              cacheWrite: pricing.cacheCreateRate,
+            };
 
             const inputCost = (info.tokenUsage.input / 1_000_000) * rates.input;
             const outputCost = (info.tokenUsage.output / 1_000_000) * rates.output;
-            const cacheReadCost = ((info.tokenUsage.cacheRead || 0) / 1_000_000) * rates.cacheRead;
-            const cacheWriteCost = ((info.tokenUsage.cacheCreation || 0) / 1_000_000) * rates.cacheWrite;
+            const cacheReadCost = ((info.tokenUsage.cacheRead || 0) / 1_000_000) * (rates.cacheRead || 0);
+            const cacheWriteCost = ((info.tokenUsage.cacheCreation || 0) / 1_000_000) * (rates.cacheWrite || 0);
 
             const tokenBreakdown = [
               { label: 'Input', value: info.tokenUsage.input, cost: inputCost, rate: rates.input, color: '#3B82F6' },
