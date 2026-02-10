@@ -75,7 +75,17 @@ async function refreshData(changedFile?: string): Promise<void> {
   const s = stats || emptyStats;
   const projectsList = projects || [];
 
+  // Normalize model names (group variants of same model together)
+  const normalizeModelName = (model: string): string => {
+    const lower = model.toLowerCase();
+    if (lower.includes('opus')) return 'claude-opus-4.5';
+    if (lower.includes('sonnet')) return 'claude-sonnet-4.5';
+    if (lower.includes('haiku')) return 'claude-haiku-4.5';
+    return model;
+  };
+
   // Build model breakdown from stats-cache (may be stale)
+  // Aggregate by normalized model name to handle variant spellings
   const modelBreakdown: Record<string, { tokenUsage: TokenUsage; estimatedCost: number }> = {};
 
   let totalInputTokens = 0;
@@ -84,14 +94,25 @@ async function refreshData(changedFile?: string): Promise<void> {
   let totalCacheCreationTokens = 0;
 
   for (const [model, usage] of Object.entries(s.modelUsage)) {
+    const normalizedModel = normalizeModelName(model);
     const tokens: TokenUsage = {
       input: usage.inputTokens,
       output: usage.outputTokens,
       cacheRead: usage.cacheReadInputTokens,
       cacheCreation: usage.cacheCreationInputTokens,
     };
-    const cost = calculateCost(tokens, model);
-    modelBreakdown[model] = { tokenUsage: tokens, estimatedCost: cost };
+    const cost = calculateCost(tokens, normalizedModel);
+
+    // Aggregate if model already exists
+    if (modelBreakdown[normalizedModel]) {
+      modelBreakdown[normalizedModel].tokenUsage.input += tokens.input;
+      modelBreakdown[normalizedModel].tokenUsage.output += tokens.output;
+      modelBreakdown[normalizedModel].tokenUsage.cacheRead = (modelBreakdown[normalizedModel].tokenUsage.cacheRead || 0) + (tokens.cacheRead || 0);
+      modelBreakdown[normalizedModel].tokenUsage.cacheCreation = (modelBreakdown[normalizedModel].tokenUsage.cacheCreation || 0) + (tokens.cacheCreation || 0);
+      modelBreakdown[normalizedModel].estimatedCost += cost;
+    } else {
+      modelBreakdown[normalizedModel] = { tokenUsage: tokens, estimatedCost: cost };
+    }
 
     totalInputTokens += usage.inputTokens;
     totalOutputTokens += usage.outputTokens;
