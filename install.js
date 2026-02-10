@@ -240,18 +240,24 @@ const setupHooks = async () => {
 $pidFile = "$env:USERPROFILE\\.claude\\.dashboard-pid"
 $projectRoot = "${projectRoot}"
 
-# Check if dashboard is already running
+# Check if dashboard is already running and process is actually alive
 if (Test-Path $pidFile) {
     try {
         $lock = Get-Content $pidFile | ConvertFrom-Json
         $process = Get-Process -Id $lock.pid -ErrorAction SilentlyContinue
 
-        if ($process) {
+        if ($process -and $process.ProcessName -like "*node*") {
             Write-Host "[Dashboard] Already running on port $($lock.port)" -ForegroundColor Green
             exit 0
+        } else {
+            # Stale lock (process died), delete it so server can restart
+            Write-Host "[Dashboard] Cleaning stale lock file..." -ForegroundColor Yellow
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
         }
     } catch {
-        # Stale lock, continue to start
+        # Stale or corrupted lock, continue to start
+        Write-Host "[Dashboard] Removing corrupted lock file..." -ForegroundColor Yellow
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     }
 }
 
