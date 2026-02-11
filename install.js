@@ -195,8 +195,12 @@ const registerHook = async () => {
   }
 
   // Prepare hook command based on platform
+  // For Windows, resolve the absolute path at setup time (PowerShell -File doesn't expand $env:USERPROFILE)
+  const hooksScriptPath = isWindows
+    ? path.join(os.homedir(), '.claude', 'hooks', 'sessionStart.ps1').replace(/\\/g, '\\\\')
+    : null;
   const hookCommand = isWindows
-    ? `powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\\.claude\\hooks\\sessionStart.ps1"`
+    ? `powershell -NoProfile -ExecutionPolicy Bypass -File "${hooksScriptPath}"`
     : `$HOME/.claude/hooks/sessionStart.sh`;
 
   // Create hooks section if it doesn't exist
@@ -237,29 +241,54 @@ const setupHooks = async () => {
     const psContent = `# Claude Code SessionStart Hook - Windows
 # Auto-starts dashboard when Claude Code session begins
 
+$logFile = "$env:USERPROFILE\\.claude\\.hook-debug.log"
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Hook started" | Out-File -FilePath $logFile -Append
+
 $pidFile = "$env:USERPROFILE\\.claude\\.dashboard-pid"
 $projectRoot = "${projectRoot}"
+$port = 3000
+
+# Function to check if port is in use
+function Test-PortInUse {
+    param([int]$Port)
+    $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    return $null -ne $connection
+}
 
 # Check if dashboard is already running and process is actually alive
 if (Test-Path $pidFile) {
     try {
         $lock = Get-Content $pidFile | ConvertFrom-Json
         $process = Get-Process -Id $lock.pid -ErrorAction SilentlyContinue
+        $portInUse = Test-PortInUse -Port $lock.port
 
-        if ($process -and $process.ProcessName -like "*node*") {
+        if ($process -and $process.ProcessName -like "*node*" -and $portInUse) {
             Write-Host "[Dashboard] Already running on port $($lock.port)" -ForegroundColor Green
+            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Already running (PID: $($lock.pid), port $($lock.port) listening)" | Out-File -FilePath $logFile -Append
             exit 0
         } else {
-            # Stale lock (process died), delete it so server can restart
-            Write-Host "[Dashboard] Cleaning stale lock file..." -ForegroundColor Yellow
+            # Stale lock or process not listening
+            $reason = if (-not $process) { "process not found" } elseif (-not $portInUse) { "port not listening" } else { "unknown" }
+            Write-Host "[Dashboard] Cleaning stale lock ($reason)..." -ForegroundColor Yellow
+            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Cleaning stale lock (PID: $($lock.pid), reason: $reason)" | Out-File -FilePath $logFile -Append
             Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
         }
     } catch {
         # Stale or corrupted lock, continue to start
         Write-Host "[Dashboard] Removing corrupted lock file..." -ForegroundColor Yellow
+        "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Corrupted lock file: $_" | Out-File -FilePath $logFile -Append
         Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     }
 }
+
+# Additional safety check: if port is in use but no PID file, don't try to start
+if (-not (Test-Path $pidFile) -and (Test-PortInUse -Port $port)) {
+    Write-Host "[Dashboard] Port $port already in use by another process" -ForegroundColor Yellow
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Port $port in use, skipping start" | Out-File -FilePath $logFile -Append
+    exit 0
+}
+
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting npm run dev..." | Out-File -FilePath $logFile -Append
 
 # Start dashboard in background
 Write-Host "[Dashboard] Starting usage dashboard..." -ForegroundColor Cyan
@@ -285,11 +314,14 @@ try {
     if (Test-Path $pidFile) {
         $lock = Get-Content $pidFile | ConvertFrom-Json
         Write-Host "[Dashboard] Started on http://localhost:$($lock.port)" -ForegroundColor Green
+        "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Started successfully on port $($lock.port)" | Out-File -FilePath $logFile -Append
     } else {
         Write-Host "[Dashboard] Started but PID file not found" -ForegroundColor Yellow
+        "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Started but PID file not found" | Out-File -FilePath $logFile -Append
     }
 } catch {
     Write-Host "[Dashboard] Failed to start: $_" -ForegroundColor Red
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Failed to start: $_" | Out-File -FilePath $logFile -Append
 }`;
 
     fs.writeFileSync(psHookPath, psContent);
@@ -303,19 +335,50 @@ try {
 # Claude Code SessionStart Hook - Unix
 # Auto-starts dashboard when Claude Code session begins
 
+LOG_FILE="$HOME/.claude/.hook-debug.log"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Hook started" >> "$LOG_FILE"
+
 PID_FILE="$HOME/.claude/.dashboard-pid"
 PROJECT_ROOT="${projectRoot}"
+PORT=3000
+
+# Function to check if port is in use
+port_in_use() {
+    lsof -i :$1 -sTCP:LISTEN -t >/dev/null 2>&1
+}
 
 # Check if dashboard is already running
 if [ -f "$PID_FILE" ]; then
     PID=$(jq -r '.pid' "$PID_FILE" 2>/dev/null)
-    PORT=$(jq -r '.port' "$PID_FILE" 2>/dev/null)
+    PORT_FROM_FILE=$(jq -r '.port' "$PID_FILE" 2>/dev/null)
 
-    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-        echo "[Dashboard] ✓ Already running on port $PORT"
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null && port_in_use "$PORT_FROM_FILE"; then
+        echo "[Dashboard] ✓ Already running on port $PORT_FROM_FILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Already running (PID: $PID, port $PORT_FROM_FILE listening)" >> "$LOG_FILE"
         exit 0
+    else
+        # Stale lock or process not listening
+        if ! kill -0 "$PID" 2>/dev/null; then
+            REASON="process not found"
+        elif ! port_in_use "$PORT_FROM_FILE"; then
+            REASON="port not listening"
+        else
+            REASON="unknown"
+        fi
+        echo "[Dashboard] ⚠️  Cleaning stale lock ($REASON)..."
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cleaning stale lock (PID: $PID, reason: $REASON)" >> "$LOG_FILE"
+        rm -f "$PID_FILE"
     fi
 fi
+
+# Additional safety check: if port is in use but no PID file, don't try to start
+if [ ! -f "$PID_FILE" ] && port_in_use "$PORT"; then
+    echo "[Dashboard] ⚠️  Port $PORT already in use by another process"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Port $PORT in use, skipping start" >> "$LOG_FILE"
+    exit 0
+fi
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting npm run dev..." >> "$LOG_FILE"
 
 # Start dashboard in background
 echo "[Dashboard] 🚀 Starting usage dashboard..."
@@ -334,8 +397,10 @@ done
 if [ -f "$PID_FILE" ]; then
     PORT=$(jq -r '.port' "$PID_FILE")
     echo "[Dashboard] ✓ Started on http://localhost:$PORT"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Started successfully on port $PORT" >> "$LOG_FILE"
 else
     echo "[Dashboard] ⚠️  Started but PID file not found"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Started but PID file not found" >> "$LOG_FILE"
 fi`;
 
     fs.writeFileSync(bashHookPath, bashContent);
